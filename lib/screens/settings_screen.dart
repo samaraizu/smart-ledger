@@ -5,6 +5,7 @@ import '../models/category.dart';
 import '../models/brand.dart';
 import '../services/expense_service.dart';
 import '../services/google_vision_service.dart';
+import '../services/auth_service.dart';
 import 'api_key_setup_screen.dart';
 import 'dart:html' as html;
 import 'dart:convert';
@@ -15,6 +16,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final visionService = GoogleVisionService();
+    final authService = AuthService();
     
     return Scaffold(
       appBar: AppBar(
@@ -26,6 +28,70 @@ class SettingsScreen extends StatelessWidget {
       body: SafeArea(
         child: ListView(
           children: [
+            // User Profile Section
+            if (authService.isSignedIn) ...[
+              Container(
+                margin: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  children: [
+                    CircleAvatar(
+                      radius: 40,
+                      backgroundColor: Colors.blue.shade100,
+                      child: Text(
+                        authService.displayName?.substring(0, 1).toUpperCase() ?? 
+                        authService.userEmail?.substring(0, 1).toUpperCase() ?? 
+                        'U',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      authService.displayName ?? 'ユーザー',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      authService.userEmail ?? '',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_done, size: 16, color: Colors.green.shade600),
+                        const SizedBox(width: 6),
+                        Text(
+                          'クラウド同期: 有効',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.green.shade600,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(),
+            ],
+            
             // API Settings Section
             ListTile(
               leading: Icon(
@@ -87,9 +153,73 @@ class SettingsScreen extends StatelessWidget {
                 );
               },
             ),
+            
+            // Logout Section
+            if (authService.isSignedIn) ...[
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text(
+                  'ログアウト',
+                  style: TextStyle(color: Colors.red),
+                ),
+                subtitle: const Text('アカウントからログアウトします'),
+                trailing: const Icon(Icons.chevron_right, color: Colors.red),
+                onTap: () => _showLogoutDialog(context, authService),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  void _showLogoutDialog(BuildContext context, AuthService authService) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('ログアウト'),
+          content: const Text('本当にログアウトしますか？\n\nローカルデータは保持されますが、クラウド同期が無効になります。'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                try {
+                  await authService.signOut();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('ログアウトしました'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('ログアウトに失敗しました: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: const Text(
+                'ログアウト',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 

@@ -5,11 +5,13 @@ import 'dart:async';
 import '../models/expense.dart';
 import '../models/category.dart';
 import '../models/brand.dart';
+import 'firestore_service.dart';
 
 class ExpenseService extends ChangeNotifier {
   static const String _expenseBoxName = 'expenses';
   static const String _categoryBoxName = 'categories';
   static const String _brandBoxName = 'brands';
+  static const String _migrationKey = 'has_migrated_to_firestore';
   
   Box<Expense>? _expenseBox;
   Box<ExpenseCategory>? _categoryBox;
@@ -17,6 +19,10 @@ class ExpenseService extends ChangeNotifier {
   
   bool _isInitialized = false;
   final String? userId;
+  final FirestoreService _firestoreService = FirestoreService();
+  StreamSubscription? _expensesSubscription;
+  StreamSubscription? _categoriesSubscription;
+  StreamSubscription? _brandsSubscription;
 
   ExpenseService({this.userId});
 
@@ -49,12 +55,149 @@ class ExpenseService extends ChangeNotifier {
       }
     }
     
+    // If user is logged in, sync with Firestore
+    if (userId != null) {
+      await _syncWithFirestore();
+      _setupRealtimeListeners();
+    }
+    
     _isInitialized = true;
     notifyListeners();
   }
   
+  // Migrate local data to Firestore (one-time operation)
+  Future<void> _syncWithFirestore() async {
+    if (userId == null) return;
+    
+    final prefs = await Hive.openBox('settings');
+    final hasMigrated = prefs.get(_migrationKey, defaultValue: false);
+    
+    if (!hasMigrated) {
+      // This is the first time logging in, migrate local data to Firestore
+      final expenses = getAllExpenses();
+      final categories = getAllCategories();
+      final brands = getAllBrands();
+      
+      if (expenses.isNotEmpty || categories.isNotEmpty || brands.isNotEmpty) {
+        await _firestoreService.migrateLocalData(
+          userId!,
+          expenses,
+          categories,
+          brands,
+        );
+        
+        await prefs.put(_migrationKey, true);
+        
+        if (kDebugMode) {
+          print('✅ Local data migrated to Firestore');
+        }
+      }
+    } else {
+      // Load data from Firestore
+      await _loadFromFirestore();
+    }
+  }
+  
+  // Load data from Firestore to local Hive
+  Future<void> _loadFromFirestore() async {
+    if (userId == null) return;
+    
+    try {
+      // Load expenses
+      final expenses = await _firestoreService.getExpenses(userId!);
+      await _expenseBox!.clear();
+      for (final expense in expenses) {
+        await _expenseBox!.put(expense.id, expense);
+      }
+      
+      // Load categories
+      final categories = await _firestoreService.getCategories(userId!);
+      if (categories.isNotEmpty) {
+        await _categoryBox!.clear();
+        for (final category in categories) {
+          await _categoryBox!.put(category.id, category);
+        }
+      }
+      
+      // Load brands
+      final brands = await _firestoreService.getBrands(userId!);
+      await _brandBox!.clear();
+      for (final brand in brands) {
+        await _brandBox!.put(brand.id, brand);
+      }
+      
+      notifyListeners();
+      
+      if (kDebugMode) {
+        print('✅ Data loaded from Firestore');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error loading from Firestore: $e');
+      }
+    }
+  }
+  
+  // Setup real-time listeners for Firestore changes
+  void _setupRealtimeListeners() {
+    if (userId == null) return;
+    
+    // Listen to expenses changes
+    _expensesSubscription = _firestoreService.streamExpenses(userId!).listen(
+      (expenses) async {
+        await _expenseBox!.clear();
+        for (final expense in expenses) {
+          await _expenseBox!.put(expense.id, expense);
+        }
+        notifyListeners();
+      },
+      onError: (error) {
+        if (kDebugMode) {
+          print('❌ Error in expenses stream: $error');
+        }
+      },
+    );
+    
+    // Listen to categories changes
+    _categoriesSubscription = _firestoreService.streamCategories(userId!).listen(
+      (categories) async {
+        if (categories.isNotEmpty) {
+          await _categoryBox!.clear();
+          for (final category in categories) {
+            await _categoryBox!.put(category.id, category);
+          }
+          notifyListeners();
+        }
+      },
+      onError: (error) {
+        if (kDebugMode) {
+          print('❌ Error in categories stream: $error');
+        }
+      },
+    );
+    
+    // Listen to brands changes
+    _brandsSubscription = _firestoreService.streamBrands(userId!).listen(
+      (brands) async {
+        await _brandBox!.clear();
+        for (final brand in brands) {
+          await _brandBox!.put(brand.id, brand);
+        }
+        notifyListeners();
+      },
+      onError: (error) {
+        if (kDebugMode) {
+          print('❌ Error in brands stream: $error');
+        }
+      },
+    );
+  }
+  
   @override
   void dispose() {
+    _expensesSubscription?.cancel();
+    _categoriesSubscription?.cancel();
+    _brandsSubscription?.cancel();
     super.dispose();
   }
 
@@ -65,16 +208,34 @@ class ExpenseService extends ChangeNotifier {
 
   Future<void> addExpense(Expense expense) async {
     await _expenseBox?.put(expense.id, expense);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.saveExpense(userId!, expense);
+    }
+    
     notifyListeners();
   }
 
   Future<void> updateExpense(Expense expense) async {
     await _expenseBox?.put(expense.id, expense);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.updateExpense(userId!, expense);
+    }
+    
     notifyListeners();
   }
 
   Future<void> deleteExpense(String id) async {
     await _expenseBox?.delete(id);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.deleteExpense(userId!, id);
+    }
+    
     notifyListeners();
   }
 
@@ -89,11 +250,23 @@ class ExpenseService extends ChangeNotifier {
 
   Future<void> addCategory(ExpenseCategory category) async {
     await _categoryBox?.put(category.id, category);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.saveCategory(userId!, category);
+    }
+    
     notifyListeners();
   }
 
   Future<void> deleteCategory(String id) async {
     await _categoryBox?.delete(id);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.deleteCategory(userId!, id);
+    }
+    
     notifyListeners();
   }
 
@@ -110,11 +283,23 @@ class ExpenseService extends ChangeNotifier {
 
   Future<void> addBrand(Brand brand) async {
     await _brandBox?.put(brand.id, brand);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.saveBrand(userId!, brand);
+    }
+    
     notifyListeners();
   }
 
   Future<void> deleteBrand(String id) async {
     await _brandBox?.delete(id);
+    
+    // Sync to Firestore
+    if (userId != null) {
+      await _firestoreService.deleteBrand(userId!, id);
+    }
+    
     notifyListeners();
   }
 

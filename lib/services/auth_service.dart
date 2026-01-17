@@ -1,7 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
-/// Authentication service for Firebase
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
 
@@ -12,82 +11,72 @@ class AuthService {
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
   // Check if user is signed in
-  bool get isSignedIn => currentUser != null;
+  bool get isSignedIn => _auth.currentUser != null;
 
   // Get user ID
-  String? get userId => currentUser?.uid;
+  String? get userId => _auth.currentUser?.uid;
 
   // Get user email
-  String? get userEmail => currentUser?.email;
+  String? get userEmail => _auth.currentUser?.email;
 
   // Get user display name
-  String? get userDisplayName => currentUser?.displayName;
+  String? get displayName => _auth.currentUser?.displayName;
 
-  /// Sign in with Google (Web only)
+  // Sign in with Google (Web only)
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      if (kDebugMode) {
-        debugPrint('AuthService: Starting Google sign in...');
+      if (kIsWeb) {
+        // Web platform: Use popup
+        GoogleAuthProvider googleProvider = GoogleAuthProvider();
+        
+        // Add scopes for more permissions
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+        
+        UserCredential userCredential = await _auth.signInWithPopup(googleProvider);
+        
+        if (kDebugMode) {
+          print('✅ Google Sign-In successful: ${userCredential.user?.email}');
+        }
+        
+        return userCredential;
+      } else {
+        // Mobile platforms not supported yet
+        throw UnsupportedError('Google Sign-In is only supported on Web platform');
       }
-
-      // Create Google Auth Provider
-      final GoogleAuthProvider googleProvider = GoogleAuthProvider();
-      
-      // Add scopes if needed
-      googleProvider.addScope('email');
-      googleProvider.addScope('profile');
-      
-      // Sign in with popup (Web only)
-      final UserCredential userCredential = await _auth.signInWithPopup(googleProvider);
-      
-      if (kDebugMode) {
-        debugPrint('AuthService: Sign in successful - User: ${userCredential.user?.email}');
-      }
-      
-      return userCredential;
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('AuthService: Error signing in with Google: $e');
+        print('❌ Google Sign-In error: $e');
       }
       rethrow;
     }
   }
 
-  /// Sign out
+  // Sign out
   Future<void> signOut() async {
     try {
-      if (kDebugMode) {
-        debugPrint('AuthService: Signing out...');
-      }
-      
       await _auth.signOut();
-      
       if (kDebugMode) {
-        debugPrint('AuthService: Sign out successful');
+        print('✅ Sign out successful');
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('AuthService: Error signing out: $e');
+        print('❌ Sign out error: $e');
       }
       rethrow;
     }
   }
 
-  /// Delete user account
+  // Delete account
   Future<void> deleteAccount() async {
     try {
+      await _auth.currentUser?.delete();
       if (kDebugMode) {
-        debugPrint('AuthService: Deleting account...');
-      }
-      
-      await currentUser?.delete();
-      
-      if (kDebugMode) {
-        debugPrint('AuthService: Account deleted');
+        print('✅ Account deleted successfully');
       }
     } catch (e) {
       if (kDebugMode) {
-        debugPrint('AuthService: Error deleting account: $e');
+        print('❌ Delete account error: $e');
       }
       rethrow;
     }
