@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'dart:convert';
 import 'dart:async';
 import '../models/expense.dart';
 import '../models/category.dart';
@@ -69,32 +68,40 @@ class ExpenseService extends ChangeNotifier {
   Future<void> _syncWithFirestore() async {
     if (userId == null) return;
     
-    final prefs = await Hive.openBox('settings');
-    final hasMigrated = prefs.get(_migrationKey, defaultValue: false);
-    
-    if (!hasMigrated) {
-      // This is the first time logging in, migrate local data to Firestore
-      final expenses = getAllExpenses();
-      final categories = getAllCategories();
-      final brands = getAllBrands();
+    try {
+      final prefs = await Hive.openBox('settings');
+      final migrationKey = '${_migrationKey}_$userId';
+      final hasMigrated = prefs.get(migrationKey, defaultValue: false);
       
-      if (expenses.isNotEmpty || categories.isNotEmpty || brands.isNotEmpty) {
-        await _firestoreService.migrateLocalData(
-          userId!,
-          expenses,
-          categories,
-          brands,
-        );
+      if (!hasMigrated) {
+        // This is the first time logging in with this password
+        // Migrate local data to Firestore
+        final expenses = getAllExpenses();
+        final categories = getAllCategories();
+        final brands = getAllBrands();
         
-        await prefs.put(_migrationKey, true);
-        
-        if (kDebugMode) {
-          print('✅ Local data migrated to Firestore');
+        if (expenses.isNotEmpty || categories.isNotEmpty || brands.isNotEmpty) {
+          await _firestoreService.migrateLocalData(
+            userId!,
+            expenses,
+            categories,
+            brands,
+          );
+          
+          await prefs.put(migrationKey, true);
+          
+          if (kDebugMode) {
+            print('✅ Local data migrated to Firestore');
+          }
         }
+      } else {
+        // Load data from Firestore
+        await _loadFromFirestore();
       }
-    } else {
-      // Load data from Firestore
-      await _loadFromFirestore();
+    } catch (e) {
+      if (kDebugMode) {
+        print('❌ Error syncing with Firestore: $e');
+      }
     }
   }
   
@@ -211,7 +218,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.saveExpense(userId!, expense);
+      try {
+        await _firestoreService.saveExpense(userId!, expense);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error saving expense to Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -222,7 +235,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.updateExpense(userId!, expense);
+      try {
+        await _firestoreService.updateExpense(userId!, expense);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error updating expense in Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -233,7 +252,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.deleteExpense(userId!, id);
+      try {
+        await _firestoreService.deleteExpense(userId!, id);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error deleting expense from Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -253,7 +278,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.saveCategory(userId!, category);
+      try {
+        await _firestoreService.saveCategory(userId!, category);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error saving category to Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -264,7 +295,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.deleteCategory(userId!, id);
+      try {
+        await _firestoreService.deleteCategory(userId!, id);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error deleting category from Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -286,7 +323,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.saveBrand(userId!, brand);
+      try {
+        await _firestoreService.saveBrand(userId!, brand);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error saving brand to Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();
@@ -297,7 +340,13 @@ class ExpenseService extends ChangeNotifier {
     
     // Sync to Firestore
     if (userId != null) {
-      await _firestoreService.deleteBrand(userId!, id);
+      try {
+        await _firestoreService.deleteBrand(userId!, id);
+      } catch (e) {
+        if (kDebugMode) {
+          print('❌ Error deleting brand from Firestore: $e');
+        }
+      }
     }
     
     notifyListeners();

@@ -3,12 +3,11 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'services/expense_service.dart';
-import 'services/auth_service.dart';
+import 'services/password_auth_service.dart';
 import 'screens/home_screen.dart';
-import 'screens/login_screen.dart';
+import 'screens/password_login_screen.dart';
 import 'models/adapters.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -66,7 +65,63 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const AuthWrapper(),
+      routes: {
+        '/home': (context) {
+          final userId = ModalRoute.of(context)!.settings.arguments as String?;
+          return _buildHomeWithService(userId);
+        },
+      },
     );
+  }
+
+  Widget _buildHomeWithService(String? userId) {
+    return FutureBuilder<ExpenseService>(
+      future: _initializeExpenseService(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('データを読み込んでいます...'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('エラーが発生しました: ${snapshot.error}'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final expenseService = snapshot.data!;
+
+        return ChangeNotifierProvider.value(
+          value: expenseService,
+          child: const HomeScreen(),
+        );
+      },
+    );
+  }
+
+  Future<ExpenseService> _initializeExpenseService(String? userId) async {
+    final expenseService = ExpenseService(userId: userId);
+    await expenseService.init();
+    return expenseService;
   }
 }
 
@@ -75,12 +130,9 @@ class AuthWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final authService = AuthService();
-    
-    return StreamBuilder<User?>(
-      stream: authService.authStateChanges,
+    return FutureBuilder(
+      future: _checkAuthStatus(),
       builder: (context, snapshot) {
-        // Show loading while checking auth state
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(
@@ -88,69 +140,74 @@ class AuthWrapper extends StatelessWidget {
             ),
           );
         }
-        
-        // Show login screen if not authenticated
-        if (!snapshot.hasData || snapshot.data == null) {
-          return const LoginScreen();
+
+        final isLoggedIn = snapshot.data as bool? ?? false;
+
+        if (!isLoggedIn) {
+          return const PasswordLoginScreen();
         }
-        
-        // User is authenticated, initialize ExpenseService with userId
-        final userId = snapshot.data!.uid;
-        return FutureBuilder(
-          future: _initializeExpenseService(userId),
-          builder: (context, serviceSnapshot) {
-            if (serviceSnapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 16),
-                      Text('データを読み込んでいます...'),
-                    ],
-                  ),
-                ),
-              );
-            }
-            
-            if (serviceSnapshot.hasError) {
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.error, size: 48, color: Colors.red),
-                      const SizedBox(height: 16),
-                      Text('エラーが発生しました: ${serviceSnapshot.error}'),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: () async {
-                          await authService.signOut();
-                        },
-                        child: const Text('ログアウト'),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }
-            
-            final expenseService = serviceSnapshot.data as ExpenseService;
-            
-            return ChangeNotifierProvider.value(
-              value: expenseService,
-              child: const HomeScreen(),
-            );
-          },
+
+        // Get userId from auth service
+        final authService = PasswordAuthService();
+        return _buildHomeWithService(authService.userId);
+      },
+    );
+  }
+
+  Future<bool> _checkAuthStatus() async {
+    final authService = PasswordAuthService();
+    await authService.init();
+    return authService.isLoggedIn;
+  }
+
+  Widget _buildHomeWithService(String? userId) {
+    return FutureBuilder<ExpenseService>(
+      future: _initializeExpenseService(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('データを読み込んでいます...'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error, size: 48, color: Colors.red),
+                  const SizedBox(height: 16),
+                  Text('エラーが発生しました: ${snapshot.error}'),
+                ],
+              ),
+            ),
+          );
+        }
+
+        final expenseService = snapshot.data!;
+
+        return ChangeNotifierProvider.value(
+          value: expenseService,
+          child: const HomeScreen(),
         );
       },
     );
   }
-  
-  Future<ExpenseService> _initializeExpenseService(String userId) async {
+
+  Future<ExpenseService> _initializeExpenseService(String? userId) async {
     final expenseService = ExpenseService(userId: userId);
     await expenseService.init();
     return expenseService;
   }
 }
+
